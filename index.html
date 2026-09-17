@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mapa Interactivo UMEDI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f3f4f6;
+            overflow-x: hidden;
+        }
+
+        /* Contenedor principal que mantiene la proporción de la imagen */
+        .map-container {
+            position: relative;
+            width: 100%;
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .map-image {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        /* Estilos para los botones interactivos sobre el mapa */
+        .hotspot {
+            position: absolute;
+            width: 3%; /* Tamaño relativo al ancho de la imagen */
+            height: 4.5%; /* Tamaño relativo al alto para mantenerlo más o menos circular */
+            background-color: transparent; /* Transparente, confía en el círculo de la imagen subyacente */
+            border-radius: 50%;
+            cursor: pointer;
+            transform: translate(-50%, -50%); /* Centrar el punto exacto */
+            transition: all 0.2s ease-in-out;
+            z-index: 10;
+        }
+
+        /* Efecto hover sutil para indicar que es clickeable */
+        .hotspot:hover {
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.5);
+            background-color: rgba(255, 255, 255, 0.2);
+            transform: translate(-50%, -50%) scale(1.1);
+        }
+
+        /* Estilos del panel lateral (Modal) */
+        .info-panel-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            z-index: 50;
+        }
+
+        .info-panel-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .info-panel {
+            background-color: white;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            transform: scale(0.95) translateY(20px);
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex;
+            flex-direction: column;
+        }
+
+        @media (min-width: 768px) {
+            .info-panel {
+                flex-direction: row; /* En pantallas grandes, imagen a la mitad, texto a la otra */
+            }
+        }
+
+        .info-panel-overlay.active .info-panel {
+            transform: scale(1) translateY(0);
+        }
+
+        .panel-image-container {
+            width: 100%;
+            height: 250px;
+            background-color: #e5e7eb;
+            position: relative;
+        }
+        
+        @media (min-width: 768px) {
+            .panel-image-container {
+                width: 50%;
+                height: auto;
+                min-height: 400px;
+            }
+        }
+
+        .panel-image-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-top-left-radius: 12px;
+            border-top-right-radius: 12px;
+        }
+        
+        @media (min-width: 768px) {
+            .panel-image-container img {
+                border-top-right-radius: 0;
+                border-bottom-left-radius: 12px;
+            }
+        }
+
+        .panel-content {
+            padding: 2rem;
+            width: 100%;
+            position: relative;
+        }
+        
+        @media (min-width: 768px) {
+            .panel-content {
+                width: 50%;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+            }
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: #f3f4f6;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            font-size: 1.2rem;
+            color: #4b5563;
+            transition: background 0.2s;
+            z-index: 10;
+        }
+        
+        /* En pantallas grandes, mover el botón al contenedor de contenido si la imagen está a la izquierda */
+        @media (min-width: 768px) {
+             .panel-content > .close-btn {
+                 top: 1rem;
+                 right: 1rem;
+             }
+        }
+
+        .close-btn:hover {
+            background: #e5e7eb;
+            color: #111827;
+        }
+
+    </style>
+</head>
+<body>
+
+    <header class="bg-[#1a3641] text-white p-4 text-center sticky top-0 z-40 shadow-md">
+        <h1 class="text-2xl md:text-3xl font-bold tracking-tight">Mapa Interactivo del Campus UMEDI</h1>
+        <p class="text-sm md:text-base text-gray-300 mt-1">Haz clic en los números sobre el mapa para explorar cada área.</p>
+    </header>
+
+    <main class="w-full bg-gray-900 p-2 md:p-6 flex justify-center">
+        <div class="map-container relative shadow-2xl rounded-xl overflow-hidden bg-white">
+            <!-- La imagen de fondo proporcionada por el usuario -->
+            <img src="MAPA_UMEDI.png" alt="Mapa del Campus UMEDI" class="map-image" id="campus-map" onerror="this.onerror=null; this.src='https://placehold.co/1600x1066/1a3641/ffffff?text=Error+cargando+MAPA_UMEDI.png\nPor+favor+asegúrate+de+que+el+archivo+esté+disponible';">
+            
+            <!-- Los hotspots se generarán aquí mediante JavaScript -->
+            <div id="hotspots-container"></div>
+        </div>
+    </main>
+
+    <div class="info-panel-overlay" id="info-overlay">
+        <div class="info-panel" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+            <!-- Mitad izquierda: Imagen representativa -->
+            <div class="panel-image-container">
+                <img id="modal-image" src="" alt="Vista del lugar">
+            </div>
+            
+            <!-- Mitad derecha: Contenido -->
+            <div class="panel-content bg-white">
+                <button class="close-btn" id="close-btn" aria-label="Cerrar detalles">✕</button>
+                <div class="flex items-center mb-4 mt-4 md:mt-0">
+                    <span id="modal-number" class="flex-shrink-0 w-10 h-10 rounded-full bg-[#1a3641] text-white flex items-center justify-center font-bold text-lg mr-3 shadow-sm">
+                        1
+                    </span>
+                    <h2 id="modal-title" class="text-2xl font-bold text-gray-800 leading-tight">Acceso Principal</h2>
+                </div>
+                <div class="h-1 w-16 bg-[#295c55] mb-6 rounded"></div>
+                <p id="modal-desc" class="text-gray-600 leading-relaxed mb-6">
+                    Descripción detallada del área. Aquí se cargará dinámicamente la información correspondiente al punto seleccionado en el mapa.
+                </p>
+                <div class="mt-auto">
+                    <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        Campus Seguro
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Datos de las 16 ubicaciones extraídas de la leyenda de la imagen
+        const locationsData = [
+            {
+                id: 1,
+                title: "Acceso Principal",
+                description: "La puerta de entrada a tu futuro. Un acceso moderno, seguro y fluido diseñado para dar la bienvenida a nuestra comunidad estudiantil, profesores y visitantes al Campus UMEDI.",
+                category: "Campus Seguro",
+                // Coordenadas estimadas (porcentajes de izquierda a derecha, y de arriba a abajo)
+                // x: porcentaje desde la izquierda, y: porcentaje desde arriba
+                pos: { x: 50.8, y: 77.2 },
+                imagePlaceholder: "https://placehold.co/800x600/1a3641/ffffff?text=Acceso+Principal"
+            },
+            {
+                id: 2,
+                title: "Plaza UMEDI",
+                description: "El corazón de nuestro campus. Un amplio espacio de encuentro al aire libre, ideal para la convivencia, eventos culturales y disfrutar del vibrante ambiente universitario.",
+                category: "Comunidad Activa",
+                pos: { x: 51.2, y: 43.1 },
+                imagePlaceholder: "https://placehold.co/800x600/295c55/ffffff?text=Plaza+UMEDI"
+            },
+            {
+                id: 3,
+                title: "Rectoría / Administración",
+                description: "Edificio central donde se coordinan todas las actividades académicas y administrativas de la Universidad, garantizando el óptimo funcionamiento de la institución.",
+                category: "Ideas que Trascienden",
+                pos: { x: 51.5, y: 27.8 },
+                imagePlaceholder: "https://placehold.co/800x600/3e4c59/ffffff?text=Rectoria+y+Administracion"
+            },
+            {
+                id: 4,
+                title: "Facultad de Ingeniería, Industria y Tecnología",
+                description: "Laboratorios de última generación y aulas equipadas para formar a los líderes tecnológicos del mañana, en contacto directo con la innovación y el desarrollo industrial.",
+                category: "Espacios Sustentables",
+                pos: { x: 30.5, y: 30.7 },
+                imagePlaceholder: "https://placehold.co/800x600/1a3641/ffffff?text=Facultad+de+Ingenieria"
+            },
+            {
+                id: 5,
+                title: "Facultad de Ciencias de la Salud",
+                description: "Instalaciones especializadas para la formación integral de profesionales de la salud, con áreas de simulación clínica y atención comunitaria.",
+                category: "Conectividad Total",
+                pos: { x: 69.5, y: 31.0 },
+                imagePlaceholder: "https://placehold.co/800x600/295c55/ffffff?text=Facultad+de+Ciencias+de+la+Salud"
+            },
+            {
+                id: 6,
+                title: "Facultad de Ciencias Sociales y Humanidades",
+                description: "Un espacio dedicado al análisis, la crítica y el estudio de las dinámicas sociales, con aulas diseñadas para el debate y la investigación académica.",
+                category: "Ideas que Trascienden",
+                pos: { x: 74.5, y: 39.5 },
+                imagePlaceholder: "https://placehold.co/800x600/1a3641/ffffff?text=Ciencias+Sociales+y+Humanidades"
+            },
+            {
+                id: 7,
+                title: "Biblioteca (Knowledge Center)",
+                description: "Nuestro centro de conocimiento e investigación. Amplios espacios de lectura, recursos digitales avanzados y zonas de estudio colaborativo y silencioso.",
+                category: "Conectividad Total",
+                pos: { x: 62.8, y: 43.1 },
+                imagePlaceholder: "https://placehold.co/800x600/295c55/ffffff?text=Biblioteca+(Knowledge+Center)"
+            },
+            {
+                id: 8,
+                title: "Edificio 8 (Por Definir)", // La leyenda salta el 8, asumo que es parte de las facultades por su posición
+                description: "Edificio académico multidisciplinario. Sus amplias aulas y talleres modulares permiten adaptarse a diversas necesidades de enseñanza y aprendizaje práctico.",
+                category: "Espacios Sustentables",
+                pos: { x: 31.7, y: 46.5 },
+                imagePlaceholder: "https://placehold.co/800x600/3e4c59/ffffff?text=Edificio+Academico"
+            },
+            {
+                id: 9,
+                title: "Centro Estudiantil / CEU",
+                description: "El espacio principal para las organizaciones estudiantiles, talleres extracurriculares, servicios de apoyo al estudiante y zonas de recreación indoor.",
+                category: "Comunidad Activa",
+                pos: { x: 33.2, y: 60.1 },
+                imagePlaceholder: "https://placehold.co/800x600/1a3641/ffffff?text=Centro+Estudiantil"
+            },
+            {
+                id: 10,
+                title: "Cafetería / Food Court",
+                description: "Una variada oferta gastronómica en un ambiente relajado. Amplias terrazas al aire libre y comedores interiores para recargar energías entre clases.",
+                category: "Comunidad Activa",
+                pos: { x: 62.8, y: 55.0 },
+                imagePlaceholder: "https://placehold.co/800x600/295c55/ffffff?text=Cafeteria+y+Food+Court"
+            },
+            {
+                id: 11,
+                title: "Centro Cultural (Auditorio)",
+                description: "Un imponente auditorio para congresos, ceremonias de graduación, obras de teatro, conciertos y eventos magnos de nuestra comunidad.",
+                category: "Ideas que Trascienden",
+                pos: { x: 77.8, y: 57.5 },
+                imagePlaceholder: "https://placehold.co/800x600/3e4c59/ffffff?text=Centro+Cultural+(Auditorio)"
+            },
+            {
+                id: 12,
+                title: "Estacionamiento",
+                description: "Amplias zonas de estacionamiento perimetral, seguras y bien iluminadas, diseñadas para facilitar la movilidad de estudiantes, personal y visitantes.",
+                category: "Campus Seguro",
+                pos: { x: 93.6, y: 47.8 },
+                imagePlaceholder: "https://placehold.co/800x600/1a3641/ffffff?text=Estacionamiento"
+            },
+            {
+                id: 13,
+                title: "Complejo Deportivo",
+                description: "Instalaciones de primer nivel que incluyen pista de atletismo, cancha de fútbol profesional, canchas de tenis y áreas multideportivas para fomentar la salud y el espíritu de equipo.",
+                category: "Comunidad Activa",
+                pos: { x: 44.2, y: 14.0 },
+                imagePlaceholder: "https://placehold.co/800x600/295c55/ffffff?text=Complejo+Deportivo"
+            },
+            {
+                id: 14,
+                title: "Parque y Áreas Verdes",
+                description: "Pulmón verde del campus, con lagos artificiales, senderos arborizados y áreas de descanso que promueven el bienestar y la sustentabilidad ambiental.",
+                category: "Espacios Sustentables",
+                pos: { x: 60.5, y: 13.9 },
+                imagePlaceholder: "https://placehold.co/800x600/3e4c59/ffffff?text=Parque+y+Areas+Verdes"
+            },
+            {
+                id: 15,
+                title: "Huerto y Energías Renovables",
+                description: "Espacios dedicados a la investigación y práctica en sustentabilidad, incluyendo huertos urbanos y paneles solares que abastecen parte de la energía del campus.",
+                category: "Espacios Sustentables",
+                pos: { x: 81.6, y: 25.8 },
+                imagePlaceholder: "https://placehold.co/800x600/1a3641/ffffff?text=Huerto+y+Energias+Renovables"
+            },
+            {
+                id: 16,
+                title: "Residencias Estudiantiles",
+                description: "Alojamiento moderno, seguro y cómodo dentro del campus para estudiantes locales y foráneos, creando una experiencia universitaria inmersiva.",
+                category: "Comunidad Activa",
+                pos: { x: 88.6, y: 17.5 },
+                imagePlaceholder: "https://placehold.co/800x600/295c55/ffffff?text=Residencias+Estudiantiles"
+            }
+        ];
+
+        // Referencias a elementos del DOM
+        const hotspotsContainer = document.getElementById('hotspots-container');
+        const overlay = document.getElementById('info-overlay');
+        const closeBtn = document.getElementById('close-btn');
+        
+        // Elementos del Modal
+        const modalTitle = document.getElementById('modal-title');
+        const modalNumber = document.getElementById('modal-number');
+        const modalDesc = document.getElementById('modal-desc');
+        const modalImage = document.getElementById('modal-image');
+        const categoryBadge = document.querySelector('.panel-content span.inline-flex');
+
+        // Función para renderizar los botones interactivos
+        function renderHotspots() {
+            hotspotsContainer.innerHTML = ''; // Limpiar contenedor
+            
+            locationsData.forEach(loc => {
+                const btn = document.createElement('button');
+                btn.className = 'hotspot';
+                btn.style.left = `${loc.pos.x}%`;
+                btn.style.top = `${loc.pos.y}%`;
+                btn.title = loc.title; // Tooltip básico
+                btn.setAttribute('aria-label', `Ver detalles de ${loc.title}`);
+                
+                // Event listener para abrir el modal
+                btn.addEventListener('click', () => openModal(loc));
+                
+                hotspotsContainer.appendChild(btn);
+            });
+        }
+
+        // Función para abrir el modal con los datos correspondientes
+        function openModal(data) {
+            // Actualizar contenido
+            modalTitle.textContent = data.title;
+            modalNumber.textContent = data.id;
+            modalDesc.textContent = data.description;
+            modalImage.src = data.imagePlaceholder;
+            modalImage.alt = `Fotografía de ${data.title}`;
+            categoryBadge.textContent = data.category;
+
+            // Cambiar color del badge según categoría (opcional, para darle más vida)
+            if(data.category === "Campus Seguro") categoryBadge.className = "inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800";
+            else if(data.category === "Espacios Sustentables") categoryBadge.className = "inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800";
+            else if(data.category === "Comunidad Activa") categoryBadge.className = "inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800";
+            else if(data.category === "Ideas que Trascienden") categoryBadge.className = "inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800";
+            else categoryBadge.className = "inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800";
+
+            // Mostrar modal
+            overlay.classList.add('active');
+            
+            // Prevenir scroll de la página de fondo
+            document.body.style.overflow = 'hidden';
+        }
+
+        // Función para cerrar el modal
+        function closeModal() {
+            overlay.classList.remove('active');
+            // Restaurar scroll
+            document.body.style.overflow = '';
+        }
+
+        // Listeners para cerrar
+        closeBtn.addEventListener('click', closeModal);
+        
+        // Cerrar al hacer clic fuera del panel (en el overlay oscuro)
+        overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) {
+                closeModal();
+            }
+        });
+        
+        // Cerrar con la tecla ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && overlay.classList.contains('active')) {
+                closeModal();
+            }
+        });
+
+        // Inicializar
+        window.addEventListener('DOMContentLoaded', () => {
+            renderHotspots();
+            
+            // Ajuste fino para imágenes responsivas en la ventana
+            const mapImg = document.getElementById('campus-map');
+            
+            // Re-calcular si la ventana cambia de tamaño drásticamente (opcional, las % suelen manejar esto bien)
+            window.addEventListener('resize', () => {
+                // Las posiciones en % se ajustan solas, pero podríamos necesitar ajustar proporciones del botón
+                // si la imagen se deforma significativamente.
+            });
+        });
+    </script>
+</body>
+</html>
